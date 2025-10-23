@@ -1,5 +1,4 @@
-pdfplumber
-camelot-py
-pandas
-pytesseract
-pillow
+fastapi
+uvicorn[standard]
+google-generativeai
+python-dotenv
