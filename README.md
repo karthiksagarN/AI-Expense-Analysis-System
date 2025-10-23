@@ -1,78 +1,138 @@
 # AI-Expense-Analysis-System
 
-This is a Python FastAPI service that acts as an AI agent for classifying bank transaction descriptions.
+![Python](https://img.shields.io/badge/python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.101-green) ![Deploy](https://img.shields.io/badge/deploy-Render-orange)
 
-It uses the Google Gemini API (gemini-2.5-flash) with JSON mode to analyze a transaction string and return a structured JSON response containing the category, merchant, and transaction status.
+**AI-Expense-Analysis-System** is a Python FastAPI service that uses Google Gemini API (`gemini-2.5-flash`) to classify bank transaction descriptions. It returns structured JSON responses containing **category**, **merchant**, and **transaction status**.
 
-Project Structure
+---
 
+## Project Structure
+
+```bash
 .
 ├── .env
 ├── .env.example
 ├── main.py
 └── requirements.txt
+```
 
+---
 
+## Setup & Run Locally (CLI)
 
-Setup & Running Locally
+### 1️⃣ Clone the Repository
 
-Install Dependencies:
+```bash
+git clone https://github.com/karthiksagarn/AI-Expense-Analysis-System.git
+cd AI-Expense-Analysis-System
+```
 
+### 2️⃣ Create a Virtual Environment (Optional but Recommended)
+
+```bash
+python -m venv venv
+source venv/bin/activate   # On Linux/macOS
+venv\Scripts\activate      # On Windows
+```
+
+### 3️⃣ Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
+### 4️⃣ Configure Environment Variables
 
-
-Create Environment File:
-
-Copy .env.example to a new file named .env.
-
+```bash
 cp .env.example .env
+nano .env
+# Add your Gemini API key in .env:
+# GEMINI_API_KEY="YOUR_API_KEY_HERE"
+```
 
-Get API Key:
+### 5️⃣ Run the Server
 
-Get your Gemini API key from Google AI Studio.
-
-Paste your key into the .env file:
-GEMINI_API_KEY="YOUR_API_KEY_HERE"
-
-Run the Server:
-
+```bash
 uvicorn main:app --reload
+```
 
+The API is now running at:
 
+```text
+http://127.0.0.1:8000
+```
 
-Test the API:
+### 6️⃣ Test the API via CLI
 
-The server will be running at http://127.0.0.1:8000.
+You can use `curl`:
 
-Go to http://127.0.0.1:8000/docs to see the interactive (Swagger) API documentation.
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze" \
+-H "Content-Type: application/json" \
+-d '{"transaction": "Your A/c XXXXX4321 debited by Rs.425.50 at Zomato Order #ZMTO12345"}'
+```
 
-You can test the /analyze endpoint directly from that page.
+**Expected JSON Response:**
 
-Deployment to Render
+```json
+{
+  "category": "Food & Drinks",
+  "merchant": "Zomato",
+  "transaction": "True"
+}
+```
 
-This app is ready to deploy on a platform like Render.
+---
 
-Push your code to a GitHub repository.
+## Deployment to Render (CLI-Friendly)
 
-On the Render dashboard, create a new "Web Service".
+1. **Push to GitHub**
 
-Connect your GitHub repository.
+```bash
+git add .
+git commit -m "Initial commit"
+git push origin main
+```
 
-Use the following settings:
+2. **Create Web Service on Render**
 
-Runtime: Python 3
+* Go to Render CLI or Dashboard
+* Run CLI command to create a service (if using Render CLI):
 
-Build Command: pip install -r requirements.txt
+```bash
+render services create web \
+  --name ai-expense-analysis \
+  --repo https://github.com/yourusername/AI-Expense-Analysis-System \
+  --branch main \
+  --build-command "pip install -r requirements.txt" \
+  --start-command "uvicorn main:app --host 0.0.0.0 --port $PORT" \
+  --env-file .env
+```
 
-Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+3. Render will automatically deploy your service. Access the live API at the provided URL.
 
-Go to the "Environment" tab for your new service.
+---
 
-Add a new "Secret File":
+## Example Usage via CLI
 
-Filename: .env
+```bash
+curl -X POST "https://<your-render-url>/analyze" \
+-H "Content-Type: application/json" \
+-d '{"transaction": "Starbucks Coffee - $5.50"}'
+```
 
-Contents: GEMINI_API_KEY="YOUR_API_KEY_HERE"
+**Response:**
 
-That's it! Render will automatically build and deploy your service. Your backend can then call the URL provided by Render.
+```json
+{
+  "category": "Food & Beverage",
+  "merchant": "Starbucks",
+  "status": "Debit"
+}
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License.
