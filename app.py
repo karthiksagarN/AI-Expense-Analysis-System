@@ -6,15 +6,40 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, List
 from dotenv import load_dotenv
+import itertools
+import asyncio
 
 # --- Load environment variables ---
 load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
-if not API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY not found. Please set it in your .env file.")
+API_KEYS = os.getenv("GEMINI_API_KEYS")
 
-# --- Configure Gemini ---
-genai.configure(api_key=API_KEY)
+if not API_KEYS:
+    raise ValueError("❌ GEMINI_API_KEYS not found. Please set it in your .env file.")
+
+API_KEYS = [k.strip() for k in API_KEYS.split(",") if k.strip()]
+if not API_KEYS:
+    raise ValueError("❌ No valid API keys found.")
+
+# Round-robin iterator for rotating keys
+api_key_cycle = itertools.cycle(API_KEYS)
+
+# --- Helper: dynamic Gemini configuration ---
+def get_genai_model(model_name: str, system_instruction: str, schema=None):
+    api_key = next(api_key_cycle)
+    genai.configure(api_key=api_key)
+    print(f"🔄 Using API key: {api_key[:6]}...")
+
+    config = {
+        "model_name": model_name,
+        "system_instruction": system_instruction,
+        "generation_config": {"response_mime_type": "application/json"},
+    }
+
+    if schema:
+        config["generation_config"]["response_schema"] = schema
+
+    return genai.GenerativeModel(**config)
+
 
 # ----------------------------------------------------------------------
 # 🧠 AGENT 1: Transaction Categorization
@@ -66,17 +91,8 @@ Rules:
 Return only valid JSON.
 """
 
-categorizer_model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    system_instruction=CATEGORIZE_PROMPT,
-    generation_config={
-        "response_mime_type": "application/json",
-        "response_schema": gemini_response_schema,
-    }
-)
-
 # ----------------------------------------------------------------------
-# 🧮 AGENT 2: Expense Insights & Suggestions
+# 🧮 AGENT 2: Expense Insights
 # ----------------------------------------------------------------------
 
 class MonthData(BaseModel):
@@ -95,22 +111,16 @@ You are a financial insights AI.
 You will receive the user's last 3 months of categorized spending data.
 
 Tasks:
-1. Generate a concise summary (3-4 sentences) describing the latest month (the most recent one).
-2. Compare trends across the three months and detect overspending, improvements, and habits.
-3. Return personalized, actionable suggestions as a list.
+1. Generate a concise summary (3-4 sentences) describing the latest month.
+2. Compare trends across the three months.
+3. Provide actionable suggestions.
 
-Output format (strict JSON):
+Return strict JSON:
 {
   "monthly_summary": "...",
   "suggestions": ["...", "...", "..."]
 }
 """
-
-insight_model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    system_instruction=INSIGHT_PROMPT,
-    generation_config={"response_mime_type": "application/json"}
-)
 
 # ----------------------------------------------------------------------
 # 🚀 FASTAPI SETUP
@@ -122,35 +132,55 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Root
 @app.get("/", include_in_schema=False)
 def root():
     return {"status": "AI Expense Analyzer is running."}
 
+
+# --- Retry logic with fallback keys ---
+async def safe_generate(model_func, *args, retries=3):
+    for attempt in range(retries):
+        try:
+            return await model_func(*args)
+        except Exception as e:
+            if "429" in str(e):
+                print(f"⚠️ Rate limit hit. Switching API key (attempt {attempt+1}/{retries})...")
+                await asyncio.sleep(1)  # short cooldown
+                continue
+            else:
+                raise
+    raise HTTPException(status_code=429, detail="All API keys are rate-limited. Please try again later.")
+
+
 # --- Agent 1: Transaction Categorizer ---
 @app.post("/analyze", response_model=TransactionAnalysis)
 async def analyze_transaction(request: TransactionRequest):
+    async def run(description):
+        model = get_genai_model("gemini-2.0-flash-lite", CATEGORIZE_PROMPT, gemini_response_schema)
+        response = await model.generate_content_async([description])
+        return TransactionAnalysis.model_validate_json(response.text)
+
     try:
-        response = await categorizer_model.generate_content_async([request.description])
-        parsed = TransactionAnalysis.model_validate_json(response.text)
-        return parsed
+        return await safe_generate(run, request.description)
     except Exception as e:
-        print(f"❌ Categorizer Error: {e}")
         raise HTTPException(status_code=500, detail=f"Categorization failed: {str(e)}")
+
 
 # --- Agent 2: Expense Insights ---
 @app.post("/analyze_insights", response_model=InsightResponse)
 async def analyze_insights(months: List[MonthData]):
-    try:
+    async def run(months):
+        model = get_genai_model("gemini-2.5-flash", INSIGHT_PROMPT)
         payload = json.dumps({"months": [m.dict() for m in months]}, indent=2)
-        response = await insight_model.generate_content_async([payload])
-        result = InsightResponse.model_validate_json(response.text)
-        return result
+        response = await model.generate_content_async([payload])
+        return InsightResponse.model_validate_json(response.text)
+
+    try:
+        return await safe_generate(run, months)
     except Exception as e:
-        print(f"❌ Insights Error: {e}")
         raise HTTPException(status_code=500, detail=f"Insights generation failed: {str(e)}")
 
-# --- Global Exception Handler ---
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
