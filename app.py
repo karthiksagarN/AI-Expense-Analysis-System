@@ -114,6 +114,7 @@ Tasks:
 1. Generate a concise summary (3-4 sentences) describing the latest month.
 2. Compare trends across the three months.
 3. Provide actionable suggestions.
+4. Make sure the amounts you mention are in ruppees only do not mention any other currency
 
 Return strict JSON:
 {
